@@ -235,7 +235,7 @@ public class LatencyReporter {
     return smoothed;
   }
 
-  private static void meteredLatency(int[] latency, int windowus, boolean timed) {
+  private static void meteredLatency(int[] latency, int[] delay, int windowus, boolean timed) {
     int events = txbegin.length;
 
     float[] smoothed = timed ? smoothedStartTime(windowus) : smoothedStartEvents(windowus);
@@ -243,18 +243,21 @@ public class LatencyReporter {
     for(int i = 0; i < events; i++) {
       int actual = (int) ((txend[i] - txbegin[i]) / 1000); // usec
       int synth = (int) ((txend[i] - smoothed[i]) / 1000); // usec
+      delay[i] = (int) ((txbegin[i] - smoothed[i]) / 1000); // positive means that actual start time is later than the scheduled start time
       latency[i] = (synth > actual) ? synth : actual;
     }
   }
 
   private static void meteredLatency(String baseLatencyFileName, boolean dumpLatencyCSV, boolean dumpLatencyHDR, int iteration, int[] latency, int windowus, String desc) {
-    meteredLatency(latency, windowus, true);
+    int[] delay = new int[latency.length];
+    meteredLatency(latency, delay, windowus, true);
 
     if (dumpLatencyCSV)
-      dumpLatencyCSV(latency, txbegin, txowner, desc, baseLatencyFileName, iteration);
+      dumpLatencyCSV(latency, txbegin, txowner, delay, desc, baseLatencyFileName, iteration);
     if (dumpLatencyHDR)
       dumpLatencyHDR(latency, txbegin, desc, baseLatencyFileName, iteration);
     printLatency(latency, txbegin, txbegin.length, desc, iteration);
+
   }
 
   private static void dumpSmoothingCSV(String baseLatencyFileName, int iteration, int[] latency, int elapsedus, boolean timed) {
@@ -281,7 +284,8 @@ public class LatencyReporter {
 
       double step = Math.pow(2.0, 0.125); // exponential steps in 1/8 of powers of two
       for (double windowus = 100; windowus <= limitus; windowus *= step) {
-        meteredLatency(latency, (int) windowus, timed);
+        int[] delay = new int[latency.length];
+        meteredLatency(latency, delay, (int) windowus, timed);
         Arrays.sort(latency);
 
         String row = ""+windowus;
@@ -317,7 +321,7 @@ public class LatencyReporter {
         }
       }
       if (dumpLatencyCSV)
-        dumpLatencyCSV(latency, txbegin, txowner, "simple", baseLatencyFileName, iteration);
+        dumpLatencyCSV(latency, txbegin, txowner, null, "simple", baseLatencyFileName, iteration);
       if (dumpLatencyHDR)
         dumpLatencyHDR(latency, txbegin, "simple", baseLatencyFileName, iteration);
       printLatency(latency, txbegin, events, "simple", iteration);
@@ -369,14 +373,18 @@ public class LatencyReporter {
     System.out.println(report);
   }
 
-  private static void dumpLatencyCSV(int[] latency, float[] txbegin, int[] txowner, String kind, String baseFilename, int iteration) {
+  private static void dumpLatencyCSV(int[] latency, float[] txbegin, int[] txowner, int[] delay, String kind, String baseFilename, int iteration) {
     String filename = baseFilename+"-usec-"+kind.replace(" ", "-")+"-"+(iteration-1)+".csv";
     try {
       File file = new File(filename);
       BufferedWriter latencyFile = new BufferedWriter(new FileWriter(file));
       for (int i = 0; i < latency.length; i++) {
         int start = (int) (txbegin[i]/1000);
-        latencyFile.write(start+", "+(start+latency[i])+", "+txowner[i]+System.lineSeparator());
+        latencyFile.write(start+", "+(start+latency[i])+", "+txowner[i]);
+        if (delay != null) {
+          latencyFile.write(", " + delay[i]);
+        }
+        latencyFile.write(System.lineSeparator());
       }
       latencyFile.close();
     } catch (IOException e) {

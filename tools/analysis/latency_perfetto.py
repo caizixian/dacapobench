@@ -26,6 +26,7 @@ def build_parser():
     parser.add_argument(
         "--output", help="Output path", default="dacapo-latency.json.gz", type=str
     )
+    parser.add_argument("--smooth", default="1", type=str)
     parser.add_argument("input", nargs="+", help="Path to one or more latency CSVs")
     return parser
 
@@ -72,9 +73,24 @@ def main():
                             "tid": tid,
                         }
                     )
+                if "metered" in p:
+                    events.append(
+                        {
+                            "name": "t{}".format(tid, smooth),
+                            "ph": "C",
+                            "ts": start,
+                            "pid": 0,
+                            "args": {
+                                "delay {} smooth {}".format(event_suffix, smooth): int(
+                                    parts[3]
+                                )
+                            },
+                        }
+                    )
             for tid, end_timestamps in end_timestamps_per_thread.items():
                 sorted_end_timestamps = sorted(end_timestamps)
-                for smooth in [1, 16, 256]:
+                smooths = [int(x) for x in args.smooth.split(",")]
+                for smooth in smooths:
                     i = 0
                     while i < len(sorted_end_timestamps):
                         events.append(
